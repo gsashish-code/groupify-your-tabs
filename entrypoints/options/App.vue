@@ -451,70 +451,64 @@ async function saveEditRule(rule: AutoGroupRule) {
             </div>
           </template>
           <template v-else>
-            <div class="rule-head">
-              <div class="rule-title-row">
-                <button
-                  class="chevron-btn"
-                  :class="{ expanded: isExpanded(rule.id) }"
-                  :title="isExpanded(rule.id) ? 'Hide details' : 'Show details'"
-                  @click="toggleExpanded(rule.id)"
-                >
-                  <Icon name="chevron-down" :size="14" />
-                </button>
-                <h3>{{ rule.groupTitle }}</h3>
-                <span class="badge" :class="rule.matchType === 'url' ? 'badge-domain' : 'badge-regex'">
-                  <Icon :name="rule.matchType === 'url' ? 'globe' : 'code'" :size="11" />
-                  {{ rule.matchType === "url" ? "domain" : "regex" }}
-                </span>
-                <span v-if="isPredefinedRule(rule)" class="badge badge-muted">predefined</span>
+            <div class="rule-body" @click="toggleExpanded(rule.id)">
+              <div class="rule-head">
+                <div class="rule-title-row">
+                  <h3>{{ rule.groupTitle }}</h3>
+                  <span class="badge" :class="rule.matchType === 'url' ? 'badge-domain' : 'badge-regex'">
+                    <Icon :name="rule.matchType === 'url' ? 'globe' : 'code'" :size="11" />
+                    {{ rule.matchType === "url" ? "domain" : "regex" }}
+                  </span>
+                  <span v-if="isPredefinedRule(rule)" class="badge badge-muted">predefined</span>
+                </div>
+                <div class="rule-actions" @click.stop>
+                  <button
+                    class="icon-btn"
+                    :class="isRuleEnabled(rule) ? 'icon-btn-on' : 'icon-btn-off'"
+                    :disabled="busyKey === `toggle-${rule.id}`"
+                    :title="isRuleEnabled(rule) ? 'Disable rule' : 'Enable rule'"
+                    @click="toggleRuleEnabled(rule)"
+                  >
+                    <Icon name="power" :size="14" />
+                  </button>
+                  <button
+                    class="icon-btn"
+                    :disabled="busyKey === `apply-${rule.id}`"
+                    title="Apply to open tabs now"
+                    @click="applyRuleNow(rule)"
+                  >
+                    <Icon name="refresh" :size="14" />
+                  </button>
+                  <button class="icon-btn" title="Edit rule" @click="startEditRule(rule)">
+                    <Icon name="edit" :size="14" />
+                  </button>
+                  <button
+                    class="icon-btn icon-btn-danger"
+                    :disabled="busyKey === `rule-${rule.id}`"
+                    title="Remove rule"
+                    @click="removeRule(rule.id)"
+                  >
+                    <Icon name="trash" :size="14" />
+                  </button>
+                </div>
               </div>
-              <div class="rule-actions">
-                <button
-                  class="icon-btn"
-                  :class="isRuleEnabled(rule) ? 'icon-btn-on' : 'icon-btn-off'"
-                  :disabled="busyKey === `toggle-${rule.id}`"
-                  :title="isRuleEnabled(rule) ? 'Disable rule' : 'Enable rule'"
-                  @click="toggleRuleEnabled(rule)"
-                >
-                  <Icon name="power" :size="14" />
-                </button>
-                <button
-                  class="icon-btn"
-                  :disabled="busyKey === `apply-${rule.id}`"
-                  title="Apply to open tabs now"
-                  @click="applyRuleNow(rule)"
-                >
-                  <Icon name="refresh" :size="14" />
-                </button>
-                <button class="icon-btn" title="Edit rule" @click="startEditRule(rule)">
-                  <Icon name="edit" :size="14" />
-                </button>
-                <button
-                  class="icon-btn icon-btn-danger"
-                  :disabled="busyKey === `rule-${rule.id}`"
-                  title="Remove rule"
-                  @click="removeRule(rule.id)"
-                >
-                  <Icon name="trash" :size="14" />
-                </button>
-              </div>
-            </div>
 
-            <Transition name="expand">
-              <div v-if="isExpanded(rule.id)">
-                <div class="pattern-box">
-                  <div v-for="pattern in rule.patterns" :key="pattern" class="pattern-line">
-                    {{ pattern }}
+              <Transition name="expand">
+                <div v-if="isExpanded(rule.id)">
+                  <div class="pattern-box">
+                    <div v-for="pattern in rule.patterns" :key="pattern" class="pattern-line">
+                      {{ pattern }}
+                    </div>
+                  </div>
+
+                  <div class="groups-into">
+                    <span>→ Groups into:</span>
+                    <span class="group-dot" :class="`color-${rule.color}`"></span>
+                    <span class="group-link">{{ rule.groupTitle }}</span>
                   </div>
                 </div>
-
-                <div class="groups-into">
-                  <span>→ Groups into:</span>
-                  <span class="group-dot" :class="`color-${rule.color}`"></span>
-                  <span class="group-link">{{ rule.groupTitle }}</span>
-                </div>
-              </div>
-            </Transition>
+              </Transition>
+            </div>
           </template>
         </div>
       </section>
@@ -705,12 +699,16 @@ h1 {
 }
 
 .select-box select {
+  appearance: none;
+  -webkit-appearance: none;
   background: none;
   border: none;
   outline: none;
   color: var(--text);
   font-size: 0.85rem;
   font-family: inherit;
+  cursor: pointer;
+  padding-right: 0.25rem;
 }
 
 .select-box select option {
@@ -763,31 +761,15 @@ h1 {
   flex-shrink: 0;
 }
 
-.chevron-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  border: none;
-  background: none;
-  color: var(--muted);
+.rule-body {
   cursor: pointer;
-  flex-shrink: 0;
+  margin: -0.9rem -1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
 }
 
-.chevron-btn:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.chevron-btn :deep(svg) {
-  transition: transform 0.18s ease;
-}
-
-.chevron-btn.expanded :deep(svg) {
-  transform: rotate(180deg);
+.rule-body:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .expand-enter-active,
@@ -802,7 +784,6 @@ h1 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chevron-btn :deep(svg),
   .expand-enter-active,
   .expand-leave-active {
     transition: none;
