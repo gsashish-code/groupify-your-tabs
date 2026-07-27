@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   PREDEFINED_GROUPS,
   TAB_GROUP_COLORS,
@@ -23,11 +23,19 @@ import {
 } from "@/utils/rules";
 import YourTabs from "@/components/YourTabs.vue";
 import Icon from "@/components/Icon.vue";
+import Toast from "@/components/Toast.vue";
 
 const rules = ref<AutoGroupRule[]>([]);
 const loading = ref(true);
 const busyKey = ref<string | null>(null);
 const statusMessage = ref<string | null>(null);
+
+// Toast auto-dismisses a few seconds after each new message, restarting the clock on every change.
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+watch(statusMessage, (message) => {
+  clearTimeout(toastTimer);
+  if (message) toastTimer = setTimeout(() => (statusMessage.value = null), 3500);
+});
 
 async function loadRules() {
   rules.value = await getRules();
@@ -229,6 +237,24 @@ async function toggleRuleEnabled(rule: AutoGroupRule) {
   }
 }
 
+// --- Expand/collapse a rule's pattern details ---
+
+const expandedRuleIds = ref<Set<string>>(new Set());
+
+function isExpanded(id: string): boolean {
+  return expandedRuleIds.value.has(id);
+}
+
+function toggleExpanded(id: string) {
+  const next = new Set(expandedRuleIds.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  expandedRuleIds.value = next;
+}
+
 // --- Editing an existing rule (title, color, patterns) ---
 
 const editingRuleId = ref<string | null>(null);
@@ -297,7 +323,7 @@ async function saveEditRule(rule: AutoGroupRule) {
       </button>
     </header>
 
-    <p v-if="statusMessage" class="status">{{ statusMessage }}</p>
+    <Toast :message="statusMessage" />
     <p v-if="loading" class="muted">Loading...</p>
 
     <template v-else>
@@ -427,6 +453,14 @@ async function saveEditRule(rule: AutoGroupRule) {
           <template v-else>
             <div class="rule-head">
               <div class="rule-title-row">
+                <button
+                  class="chevron-btn"
+                  :class="{ expanded: isExpanded(rule.id) }"
+                  :title="isExpanded(rule.id) ? 'Hide details' : 'Show details'"
+                  @click="toggleExpanded(rule.id)"
+                >
+                  <Icon name="chevron-down" :size="14" />
+                </button>
                 <h3>{{ rule.groupTitle }}</h3>
                 <span class="badge" :class="rule.matchType === 'url' ? 'badge-domain' : 'badge-regex'">
                   <Icon :name="rule.matchType === 'url' ? 'globe' : 'code'" :size="11" />
@@ -466,17 +500,21 @@ async function saveEditRule(rule: AutoGroupRule) {
               </div>
             </div>
 
-            <div class="pattern-box">
-              <div v-for="pattern in rule.patterns" :key="pattern" class="pattern-line">
-                {{ pattern }}
-              </div>
-            </div>
+            <Transition name="expand">
+              <div v-if="isExpanded(rule.id)">
+                <div class="pattern-box">
+                  <div v-for="pattern in rule.patterns" :key="pattern" class="pattern-line">
+                    {{ pattern }}
+                  </div>
+                </div>
 
-            <div class="groups-into">
-              <span>→ Groups into:</span>
-              <span class="group-dot" :class="`color-${rule.color}`"></span>
-              <span class="group-link">{{ rule.groupTitle }}</span>
-            </div>
+                <div class="groups-into">
+                  <span>→ Groups into:</span>
+                  <span class="group-dot" :class="`color-${rule.color}`"></span>
+                  <span class="group-link">{{ rule.groupTitle }}</span>
+                </div>
+              </div>
+            </Transition>
           </template>
         </div>
       </section>
@@ -543,12 +581,6 @@ h1 {
   margin: 0.1rem 0 0;
   font-size: 0.82rem;
   color: var(--muted);
-}
-
-.status {
-  font-size: 0.85rem;
-  color: var(--green);
-  margin-top: 0.5rem;
 }
 
 .muted {
@@ -729,6 +761,52 @@ h1 {
   display: flex;
   gap: 0.35rem;
   flex-shrink: 0;
+}
+
+.chevron-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chevron-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.chevron-btn :deep(svg) {
+  transition: transform 0.18s ease;
+}
+
+.chevron-btn.expanded :deep(svg) {
+  transform: rotate(180deg);
+}
+
+.expand-enter-active,
+.expand-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron-btn :deep(svg),
+  .expand-enter-active,
+  .expand-leave-active {
+    transition: none;
+  }
 }
 
 .badge {

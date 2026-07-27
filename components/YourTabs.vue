@@ -17,6 +17,17 @@ const pendingRules = computed(() =>
   props.rules.filter((rule) => !groups.value.some((group) => group.title === rule.groupTitle)),
 );
 
+// One combined, stably-keyed list so <TransitionGroup> can animate rows in/out as groups and
+// pending rules come and go, instead of the two v-for lists popping in place.
+type Row =
+  | { kind: "group"; key: string; group: Browser.tabGroups.TabGroup }
+  | { kind: "pending"; key: string; rule: AutoGroupRule };
+
+const rows = computed<Row[]>(() => [
+  ...groups.value.map((group): Row => ({ kind: "group", key: `group-${group.id}`, group })),
+  ...pendingRules.value.map((rule): Row => ({ kind: "pending", key: `pending-${rule.id}`, rule })),
+]);
+
 async function loadGroups() {
   groups.value = await getAllTabGroups();
 }
@@ -83,50 +94,58 @@ async function handleRemoveGroup(group: Browser.tabGroups.TabGroup) {
 <template>
   <div>
     <p v-if="groups.length === 0 && pendingRules.length === 0" class="muted">No groups yet.</p>
-    <div v-for="group in groups" :key="group.id" class="group-block">
-      <div v-if="editingGroupId !== group.id" class="row">
-        <div class="row-info">
-          <span class="group-icon" :class="`color-${group.color}`"><Icon name="folder" :size="13" /></span>
-          <span class="row-title">{{ group.title || "Untitled group" }}</span>
-        </div>
-        <div class="row-actions">
-          <button class="icon-btn" title="Edit group" @click="startEdit(group)">
-            <Icon name="edit" :size="13" />
-          </button>
-          <button
-            class="icon-btn icon-btn-danger"
-            :disabled="busyKey === `remove-${group.id}`"
-            title="Remove group"
-            @click="handleRemoveGroup(group)"
-          >
-            <Icon name="trash" :size="13" />
-          </button>
-        </div>
-      </div>
+    <TransitionGroup name="row" tag="div" class="rows">
+      <div v-for="item in rows" :key="item.key" class="group-block">
+        <template v-if="item.kind === 'group'">
+          <div v-if="editingGroupId !== item.group.id" class="row">
+            <div class="row-info">
+              <span class="group-icon" :class="`color-${item.group.color}`"><Icon name="folder" :size="13" /></span>
+              <span class="row-title">{{ item.group.title || "Untitled group" }}</span>
+            </div>
+            <div class="row-actions">
+              <button class="icon-btn" title="Edit group" @click="startEdit(item.group)">
+                <Icon name="edit" :size="13" />
+              </button>
+              <button
+                class="icon-btn icon-btn-danger"
+                :disabled="busyKey === `remove-${item.group.id}`"
+                title="Remove group"
+                @click="handleRemoveGroup(item.group)"
+              >
+                <Icon name="trash" :size="13" />
+              </button>
+            </div>
+          </div>
 
-      <div v-else class="edit-form">
-        <input v-model="editTitle" type="text" placeholder="Group title" />
-        <select v-model="editColor">
-          <option v-for="color in TAB_GROUP_COLORS" :key="color" :value="color">{{ color }}</option>
-        </select>
-        <div class="row-actions">
-          <button class="btn btn-accent" :disabled="busyKey === `edit-${group.id}`" @click="saveEdit(group)">
-            {{ busyKey === `edit-${group.id}` ? "Saving..." : "Save" }}
-          </button>
-          <button class="btn btn-ghost" @click="cancelEdit">Cancel</button>
-        </div>
-      </div>
-    </div>
+          <div v-else class="edit-form">
+            <input v-model="editTitle" type="text" placeholder="Group title" />
+            <select v-model="editColor">
+              <option v-for="color in TAB_GROUP_COLORS" :key="color" :value="color">{{ color }}</option>
+            </select>
+            <div class="row-actions">
+              <button
+                class="btn btn-accent"
+                :disabled="busyKey === `edit-${item.group.id}`"
+                @click="saveEdit(item.group)"
+              >
+                {{ busyKey === `edit-${item.group.id}` ? "Saving..." : "Save" }}
+              </button>
+              <button class="btn btn-ghost" @click="cancelEdit">Cancel</button>
+            </div>
+          </div>
+        </template>
 
-    <div v-for="rule in pendingRules" :key="rule.id" class="group-block">
-      <div class="row">
-        <div class="row-info">
-          <span class="group-icon" :class="`color-${rule.color}`"><Icon name="folder" :size="13" /></span>
-          <span class="row-title">{{ rule.groupTitle }}</span>
-          <span class="muted">(no tabs open yet)</span>
-        </div>
+        <template v-else>
+          <div class="row">
+            <div class="row-info">
+              <span class="group-icon" :class="`color-${item.rule.color}`"><Icon name="folder" :size="13" /></span>
+              <span class="row-title">{{ item.rule.groupTitle }}</span>
+              <span class="muted">(no tabs open yet)</span>
+            </div>
+          </div>
+        </template>
       </div>
-    </div>
+    </TransitionGroup>
   </div>
 </template>
 
@@ -173,6 +192,36 @@ async function handleRemoveGroup(group: Browser.tabGroups.TabGroup) {
   border-bottom: none;
   padding-bottom: 0;
   margin-bottom: 0;
+}
+
+.row-move,
+.row-enter-active,
+.row-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.row-enter-from,
+.row-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* Leaving items are pulled out of flow so the ones below can slide up smoothly instead of jumping. */
+.row-leave-active {
+  position: absolute;
+  width: 100%;
+}
+
+.rows {
+  position: relative;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-move,
+  .row-enter-active,
+  .row-leave-active {
+    transition: none;
+  }
 }
 
 .group-icon {
