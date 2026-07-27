@@ -6,5 +6,9 @@ export default defineConfig({
   manifest: {
     name: 'Groupify Your Tabs',
     description: 'Group your open browser tabs automatically.',
+    permissions: [
+      "tabs",
+      "tabGroups"
+    ]
   },
 });
