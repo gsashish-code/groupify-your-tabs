@@ -1,7 +1,7 @@
 import { getAllTabs, getAllTabGroups, getUngroupedTabs } from "@/utils/tabs";
 import { getRules, findMatchingRule } from "@/utils/rules";
 import { addTabsToNamedGroup } from "@/utils/tabGroups";
-import { unmarkTab, reconcileManagedTabs } from "@/utils/managedGroups";
+import { unmarkTab, reconcileManagedTabs, getTrackedGroupId } from "@/utils/managedGroups";
 import { markBackgroundContext } from "@/utils/backgroundRpc";
 
 export default defineBackground(() => {
@@ -37,10 +37,18 @@ export default defineBackground(() => {
       return;
     }
 
-    // Tab left its group (dragged out, ungrouped, or moved to a different one) — stop tracking it
-    // as extension-managed so a later rule cleanup doesn't act on stale bookkeeping.
-    if (changeInfo.groupId !== undefined && changeInfo.groupId === browser.tabGroups.TAB_GROUP_ID_NONE) {
-      unmarkTab(tabId);
+    // Tab's group membership changed (ungrouped, or moved into a different group, manually or
+    // otherwise) — if that no longer matches what we last recorded, drop the stale tracking so a
+    // later rule cleanup can't act on it. Comparing against the specific tracked groupId (instead
+    // of only reacting when it becomes "ungrouped") can't race against our own grouping action:
+    // if this fires before addTabsToNamedGroup has (re-)marked the tab, the old record was already
+    // stale and this is a correct, harmless unmark that gets immediately replaced; if it fires
+    // after, the tracked groupId already matches the new one and nothing happens.
+    if (changeInfo.groupId !== undefined) {
+      const trackedGroupId = await getTrackedGroupId(tabId);
+      if (trackedGroupId !== undefined && trackedGroupId !== changeInfo.groupId) {
+        unmarkTab(tabId);
+      }
     }
   });
 

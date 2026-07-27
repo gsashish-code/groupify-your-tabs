@@ -9,13 +9,20 @@ export function createKeyedLock() {
   return function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const previous = chains.get(key) ?? Promise.resolve();
     const run = previous.then(fn, fn);
-    chains.set(
-      key,
-      run.then(
-        () => undefined,
-        () => undefined,
-      ),
+
+    const settled = run.then(
+      () => undefined,
+      () => undefined,
     );
+    chains.set(key, settled);
+
+    // Once this call settles, drop the entry — but only if nothing newer has queued behind it in
+    // the meantime, since keys are arbitrary (e.g. user-chosen rule titles) and a long-running
+    // service worker shouldn't accumulate one forever for a key nothing is waiting on anymore.
+    settled.then(() => {
+      if (chains.get(key) === settled) chains.delete(key);
+    });
+
     return run;
   };
 }

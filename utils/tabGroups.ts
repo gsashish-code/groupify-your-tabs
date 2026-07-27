@@ -1,6 +1,7 @@
 import { getHostname, hostMatchesPattern } from "@/utils/hostMatch";
 import { markTabManaged } from "@/utils/managedGroups";
 import { createKeyedLock } from "@/utils/asyncLock";
+import { registerBackgroundOp } from "@/utils/backgroundRpc";
 
 export type TabGroupColor = Browser.tabGroups.TabGroup["color"];
 
@@ -145,15 +146,13 @@ export async function createGroupAcrossWindows(
 
 // Queues concurrent find-or-create calls that share a window+title so two tabs matching the same
 // rule at once (e.g. during session restore) can't both query before either group exists and each
-// create their own duplicate. Keyed in-memory since only calls within the same background script
-// lifetime can race each other.
+// create their own duplicate. This only actually serializes anything once addTabsToNamedGroup
+// itself is routed through the background (below) — the lock lives in whichever context calls it,
+// and the background (automatic per-navigation grouping) and an options page (Sync All, Apply Now)
+// are different contexts with separate module instances of this map.
 const withGroupLock = createKeyedLock();
 
-/**
- * Adds tabs to the group titled `title` within `windowId`, creating it (with `color`) if it
- * doesn't exist yet. A group only exists within a single window, so this must be called per-window.
- */
-export async function addTabsToNamedGroup(
+async function addTabsToNamedGroupImpl(
   windowId: number,
   title: string,
   color: TabGroupColor,
@@ -173,10 +172,24 @@ export async function addTabsToNamedGroup(
     return createGroup(tabIds, title, color);
   });
 
-  // Track exactly which tabs the extension put here — not the whole group — so a later
-  // disable/delete/rename only ever touches these tabs, even if the group also holds ones the
-  // user grouped by hand.
-  await Promise.all(tabIds.map((tabId) => markTabManaged(tabId, title)));
+  // Track exactly which tabs the extension put here, and in which group — not the whole group —
+  // so a later disable/delete/rename only ever touches these tabs, and only while they're still
+  // sitting in this same group (not one the user moved them into afterward).
+  await Promise.all(tabIds.map((tabId) => markTabManaged(tabId, groupId, title)));
 
   return groupId;
 }
+
+/**
+ * Adds tabs to the group titled `title` within `windowId`, creating it (with `color`) if it
+ * doesn't exist yet. A group only exists within a single window, so this must be called per-window.
+ *
+ * Routed through the background instance (registerBackgroundOp), so the find-or-create lock above
+ * is genuinely shared across every caller — otherwise the background's automatic grouping and an
+ * options page's "Sync All"/"Apply Now" could each hold their own lock, both miss the same
+ * not-yet-created group, and create duplicate same-titled groups in one window.
+ */
+export const addTabsToNamedGroup = registerBackgroundOp(
+  "tabGroups/addTabsToNamedGroup",
+  addTabsToNamedGroupImpl,
+);
