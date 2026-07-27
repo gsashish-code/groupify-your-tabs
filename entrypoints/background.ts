@@ -1,6 +1,7 @@
 import { getAllTabs, getAllTabGroups, getUngroupedTabs } from "@/utils/tabs";
 import { getRules, findMatchingRule } from "@/utils/rules";
 import { addTabsToNamedGroup } from "@/utils/tabGroups";
+import { unmarkGroupManaged } from "@/utils/managedGroups";
 
 export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(async () => {
@@ -21,5 +22,12 @@ export default defineBackground(() => {
     if (!rule) return;
 
     await addTabsToNamedGroup(tab.windowId, rule.groupTitle, rule.color, [tabId]);
+  });
+
+  // A group's id is freed once it stops existing (last tab removed/ungrouped), so drop it from the
+  // managed set too — otherwise a later, unrelated group could reuse the id and be treated as
+  // extension-owned by mistake.
+  browser.tabGroups.onRemoved.addListener((group) => {
+    unmarkGroupManaged(group.id);
   });
 });

@@ -1,4 +1,5 @@
 import { addTabsToNamedGroup, type TabGroupColor } from "@/utils/tabGroups";
+import { getHostname, hostMatchesPattern } from "@/utils/hostMatch";
 
 export type MatchType = "url" | "regex";
 
@@ -76,6 +77,7 @@ export async function clearAllRules(): Promise<void> {
 }
 
 export function ruleMatchesUrl(rule: AutoGroupRule, url: string): boolean {
+  const host = rule.matchType === "url" ? getHostname(url) : "";
   return rule.patterns.some((pattern) => {
     if (!pattern) return false;
     if (rule.matchType === "regex") {
@@ -85,7 +87,7 @@ export function ruleMatchesUrl(rule: AutoGroupRule, url: string): boolean {
         return false;
       }
     }
-    return url.includes(pattern);
+    return hostMatchesPattern(host, pattern);
   });
 }
 

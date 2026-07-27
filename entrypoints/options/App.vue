@@ -8,6 +8,7 @@ import {
   type TabGroupColor,
 } from "@/utils/tabGroups";
 import { getAllTabGroups } from "@/utils/tabs";
+import { filterManagedGroups } from "@/utils/managedGroups";
 import {
   getRules,
   addRule,
@@ -165,10 +166,12 @@ async function removeRule(id: string) {
     await deleteRule(id);
     await loadRules();
 
-    // Only drop the live group if no other remaining rule still targets the same title.
+    // Only drop the live group if no other remaining rule still targets the same title, and only
+    // for groups this extension actually created/populated — never a same-titled group the user
+    // grouped by hand.
     if (rule && !rules.value.some((r) => r.groupTitle === rule.groupTitle)) {
       const groups = await getAllTabGroups();
-      const matching = groups.filter((group) => group.title === rule.groupTitle);
+      const matching = await filterManagedGroups(groups.filter((group) => group.title === rule.groupTitle));
       await Promise.all(matching.map((group) => removeGroup(group.id)));
     }
   } finally {
@@ -207,7 +210,9 @@ async function resetAllRules() {
     await loadRules();
 
     const groups = await getAllTabGroups();
-    const matching = groups.filter((group) => group.title && groupTitles.has(group.title));
+    const matching = await filterManagedGroups(
+      groups.filter((group) => group.title && groupTitles.has(group.title)),
+    );
     await Promise.all(matching.map((group) => removeGroup(group.id)));
 
     statusMessage.value = "All rules removed.";
@@ -250,7 +255,7 @@ async function toggleRuleEnabled(rule: AutoGroupRule) {
       );
       if (!stillActive) {
         const groups = await getAllTabGroups();
-        const matching = groups.filter((group) => group.title === rule.groupTitle);
+        const matching = await filterManagedGroups(groups.filter((group) => group.title === rule.groupTitle));
         await Promise.all(matching.map((group) => removeGroup(group.id)));
       }
     }
@@ -318,8 +323,18 @@ async function saveEditRule(rule: AutoGroupRule) {
 
     if (soleOwner) {
       const groups = await getAllTabGroups();
-      const matching = groups.filter((group) => group.title === oldTitle);
+      const matching = await filterManagedGroups(groups.filter((group) => group.title === oldTitle));
       await Promise.all(matching.map((group) => updateGroup(group.id, newTitle, newColor)));
+    }
+
+    // Apply the updated patterns to already-open tabs now, same as creating/quick-adding/enabling
+    // a rule does — otherwise a newly-matching open tab stays ungrouped until its next navigation.
+    const updatedRule = rules.value.find((r) => r.id === rule.id);
+    if (updatedRule && isRuleEnabled(updatedRule)) {
+      const movedCount = await applyRuleToOpenTabs(updatedRule);
+      if (movedCount > 0) {
+        statusMessage.value = `"${updatedRule.groupTitle}": grouped ${movedCount} open tab${movedCount === 1 ? "" : "s"}.`;
+      }
     }
 
     editingRuleId.value = null;
