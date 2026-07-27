@@ -1,10 +1,22 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getAllTabGroups } from "@/utils/tabs";
 import { updateGroup, removeGroup, TAB_GROUP_COLORS, type TabGroupColor } from "@/utils/tabGroups";
 import { debounce } from "@/utils/debounce";
 import type { AutoGroupRule } from "@/utils/rules";
 import Icon from "@/components/Icon.vue";
+import Toast from "@/components/Toast.vue";
+
+const errorMessage = ref<string | null>(null);
+let errorTimer: ReturnType<typeof setTimeout> | undefined;
+watch(errorMessage, (message) => {
+  clearTimeout(errorTimer);
+  if (message) errorTimer = setTimeout(() => (errorMessage.value = null), 4500);
+});
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 // Rules with no live group yet (e.g. just added, nothing open matches them) still show up here,
 // as a placeholder — a rule is "listening" for a matching tab from the moment it's created.
@@ -76,6 +88,8 @@ async function saveEdit(group: Browser.tabGroups.TabGroup) {
   try {
     await updateGroup(group.id, editTitle.value.trim() || "Untitled group", editColor.value);
     editingGroupId.value = null;
+  } catch (error) {
+    errorMessage.value = `Couldn't update group: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -85,6 +99,8 @@ async function handleRemoveGroup(group: Browser.tabGroups.TabGroup) {
   busyKey.value = `remove-${group.id}`;
   try {
     await removeGroup(group.id);
+  } catch (error) {
+    errorMessage.value = `Couldn't remove group: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -93,6 +109,7 @@ async function handleRemoveGroup(group: Browser.tabGroups.TabGroup) {
 
 <template>
   <div>
+    <Toast :message="errorMessage" variant="error" />
     <p v-if="groups.length === 0 && pendingRules.length === 0" class="muted">No groups yet.</p>
     <TransitionGroup name="row" tag="div" class="rows">
       <div v-for="item in rows" :key="item.key" class="group-block">

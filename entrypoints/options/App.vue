@@ -3,12 +3,11 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   PREDEFINED_GROUPS,
   TAB_GROUP_COLORS,
-  removeGroup,
   updateGroup,
   type TabGroupColor,
 } from "@/utils/tabGroups";
 import { getAllTabGroups } from "@/utils/tabs";
-import { filterManagedGroups } from "@/utils/managedGroups";
+import { ungroupManagedTabsForTitle, renameManagedTabsTitle, isGroupFullyManaged } from "@/utils/managedGroups";
 import {
   getRules,
   addRule,
@@ -30,6 +29,7 @@ const rules = ref<AutoGroupRule[]>([]);
 const loading = ref(true);
 const busyKey = ref<string | null>(null);
 const statusMessage = ref<string | null>(null);
+const errorMessage = ref<string | null>(null);
 
 // Toast auto-dismisses a few seconds after each new message, restarting the clock on every change.
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -37,6 +37,16 @@ watch(statusMessage, (message) => {
   clearTimeout(toastTimer);
   if (message) toastTimer = setTimeout(() => (statusMessage.value = null), 3500);
 });
+
+let errorTimer: ReturnType<typeof setTimeout> | undefined;
+watch(errorMessage, (message) => {
+  clearTimeout(errorTimer);
+  if (message) errorTimer = setTimeout(() => (errorMessage.value = null), 4500);
+});
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function loadRules() {
   rules.value = await getRules();
@@ -125,6 +135,8 @@ async function quickAddCategory(category: (typeof PREDEFINED_GROUPS)[number]) {
       patterns: category.hostnames,
       predefinedId: category.id,
     });
+  } catch (error) {
+    errorMessage.value = `Couldn't add "${category.name}": ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -153,6 +165,8 @@ async function submitNewRule() {
     newRuleGroupTitle.value = "";
     newRulePatterns.value = "";
     showAddForm.value = false;
+  } catch (error) {
+    errorMessage.value = `Couldn't add rule: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -166,14 +180,14 @@ async function removeRule(id: string) {
     await deleteRule(id);
     await loadRules();
 
-    // Only drop the live group if no other remaining rule still targets the same title, and only
-    // for groups this extension actually created/populated — never a same-titled group the user
-    // grouped by hand.
+    // Only drop this rule's grouped tabs if no other remaining rule still targets the same title —
+    // and even then, only the specific tabs the extension put there, never a same-titled group's
+    // other tabs (which may belong to the user, or to another rule sharing the title).
     if (rule && !rules.value.some((r) => r.groupTitle === rule.groupTitle)) {
-      const groups = await getAllTabGroups();
-      const matching = await filterManagedGroups(groups.filter((group) => group.title === rule.groupTitle));
-      await Promise.all(matching.map((group) => removeGroup(group.id)));
+      await ungroupManagedTabsForTitle(rule.groupTitle);
     }
+  } catch (error) {
+    errorMessage.value = `Couldn't remove rule: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -189,6 +203,8 @@ async function syncAllRules() {
     if (totalMoved > 0) {
       statusMessage.value = `Synced all rules: grouped ${totalMoved} open tab${totalMoved === 1 ? "" : "s"}.`;
     }
+  } catch (error) {
+    errorMessage.value = `Couldn't sync rules: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -204,18 +220,16 @@ async function resetAllRules() {
 
   busyKey.value = "reset-all";
   try {
-    const groupTitles = new Set(rules.value.map((rule) => rule.groupTitle));
+    const groupTitles = [...new Set(rules.value.map((rule) => rule.groupTitle))];
 
     await clearAllRules();
     await loadRules();
 
-    const groups = await getAllTabGroups();
-    const matching = await filterManagedGroups(
-      groups.filter((group) => group.title && groupTitles.has(group.title)),
-    );
-    await Promise.all(matching.map((group) => removeGroup(group.id)));
+    await Promise.all(groupTitles.map((title) => ungroupManagedTabsForTitle(title)));
 
     statusMessage.value = "All rules removed.";
+  } catch (error) {
+    errorMessage.value = `Couldn't reset rules: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -228,6 +242,8 @@ async function applyRuleNow(rule: AutoGroupRule) {
     if (movedCount > 0) {
       statusMessage.value = `"${rule.groupTitle}": grouped ${movedCount} open tab${movedCount === 1 ? "" : "s"}.`;
     }
+  } catch (error) {
+    errorMessage.value = `Couldn't apply "${rule.groupTitle}": ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -248,17 +264,17 @@ async function toggleRuleEnabled(rule: AutoGroupRule) {
         statusMessage.value = `"${rule.groupTitle}": grouped ${movedCount} open tab${movedCount === 1 ? "" : "s"}.`;
       }
     } else {
-      // Disabling stops future auto-grouping — also ungroup its live tabs now, unless another
-      // still-enabled rule shares the same target group title.
+      // Disabling stops future auto-grouping — also ungroup the tabs the extension added under
+      // this title, unless another still-enabled rule shares it.
       const stillActive = rules.value.some(
         (r) => r.groupTitle === rule.groupTitle && isRuleEnabled(r),
       );
       if (!stillActive) {
-        const groups = await getAllTabGroups();
-        const matching = await filterManagedGroups(groups.filter((group) => group.title === rule.groupTitle));
-        await Promise.all(matching.map((group) => removeGroup(group.id)));
+        await ungroupManagedTabsForTitle(rule.groupTitle);
       }
     }
+  } catch (error) {
+    errorMessage.value = `Couldn't ${nextEnabled ? "enable" : "disable"} rule: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -308,12 +324,27 @@ async function saveEditRule(rule: AutoGroupRule) {
   const newTitle = editRuleTitle.value.trim();
   const newColor = editRuleColor.value;
 
-  // Only propagate to the live group if this rule is the sole owner of the old title —
-  // otherwise another rule still relies on that group and shouldn't have it renamed out from under it.
+  // Only propagate to a live group if this rule is the sole owner of the old title — otherwise
+  // another rule still relies on that group and shouldn't have it renamed out from under it.
   const soleOwner = rules.value.filter((r) => r.groupTitle === oldTitle).length === 1;
 
   busyKey.value = `edit-${rule.id}`;
   try {
+    // Snapshot which live groups (by this title) the extension fully owns *before* anything
+    // changes below — only those are safe to rename/recolor as a whole, since a same-titled group
+    // may also hold tabs the user grouped by hand.
+    let fullyManagedGroupIds: number[] = [];
+    if (soleOwner) {
+      const groups = await getAllTabGroups();
+      const sameTitleGroups = groups.filter((group) => group.title === oldTitle);
+      const isFullyManaged = await Promise.all(
+        sameTitleGroups.map((group) => isGroupFullyManaged(group.id, oldTitle)),
+      );
+      fullyManagedGroupIds = sameTitleGroups
+        .filter((_, index) => isFullyManaged[index])
+        .map((group) => group.id);
+    }
+
     await updateRule(rule.id, {
       groupTitle: newTitle,
       color: newColor,
@@ -321,11 +352,11 @@ async function saveEditRule(rule: AutoGroupRule) {
     });
     await loadRules();
 
-    if (soleOwner) {
-      const groups = await getAllTabGroups();
-      const matching = await filterManagedGroups(groups.filter((group) => group.title === oldTitle));
-      await Promise.all(matching.map((group) => updateGroup(group.id, newTitle, newColor)));
+    if (oldTitle !== newTitle) {
+      await renameManagedTabsTitle(oldTitle, newTitle);
     }
+
+    await Promise.all(fullyManagedGroupIds.map((groupId) => updateGroup(groupId, newTitle, newColor)));
 
     // Apply the updated patterns to already-open tabs now, same as creating/quick-adding/enabling
     // a rule does — otherwise a newly-matching open tab stays ungrouped until its next navigation.
@@ -338,6 +369,8 @@ async function saveEditRule(rule: AutoGroupRule) {
     }
 
     editingRuleId.value = null;
+  } catch (error) {
+    errorMessage.value = `Couldn't save rule: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -367,6 +400,7 @@ async function saveEditRule(rule: AutoGroupRule) {
     </header>
 
     <Toast :message="statusMessage" />
+    <Toast :message="errorMessage" variant="error" />
     <p v-if="loading" class="muted">Loading...</p>
 
     <template v-else>

@@ -1,16 +1,28 @@
 <script lang="ts" setup>
-import { onMounted, onUnmounted, ref } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { getAllTabs } from "@/utils/tabs";
-import { suggestGroups, createGroup, type GroupSuggestion } from "@/utils/tabGroups";
+import { suggestGroups, createGroupAcrossWindows, type GroupSuggestion } from "@/utils/tabGroups";
 import { debounce } from "@/utils/debounce";
 import { getRules, RULES_STORAGE_KEY, type AutoGroupRule } from "@/utils/rules";
 import YourTabs from "@/components/YourTabs.vue";
 import Icon from "@/components/Icon.vue";
+import Toast from "@/components/Toast.vue";
 
 const suggestions = ref<GroupSuggestion[]>([]);
 const rules = ref<AutoGroupRule[]>([]);
 const loading = ref(true);
 const busyKey = ref<string | null>(null);
+const errorMessage = ref<string | null>(null);
+
+let errorTimer: ReturnType<typeof setTimeout> | undefined;
+watch(errorMessage, (message) => {
+  clearTimeout(errorTimer);
+  if (message) errorTimer = setTimeout(() => (errorMessage.value = null), 4500);
+});
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 // Refreshes without toggling `loading`, so live updates don't flash the loading state.
 async function loadSuggestions() {
@@ -78,12 +90,15 @@ function openCustomTabRules() {
 // --- Suggested tabs ---
 
 async function createSuggestedGroup(suggestion: GroupSuggestion) {
-  const tabIds = suggestion.tabs.map((tab) => tab.id).filter((id): id is number => id !== undefined);
-  if (tabIds.length === 0) return;
+  if (suggestion.tabs.length === 0) return;
 
   busyKey.value = `suggestion-${suggestion.name}`;
   try {
-    await createGroup(tabIds, suggestion.name, suggestion.color);
+    // Suggestions are gathered across every open window, but a single tab group can't span
+    // windows — partition and create one group per window instead of one `tabs.group` call.
+    await createGroupAcrossWindows(suggestion.tabs, suggestion.name, suggestion.color);
+  } catch (error) {
+    errorMessage.value = `Couldn't create "${suggestion.name}" group: ${describeError(error)}`;
   } finally {
     busyKey.value = null;
   }
@@ -97,6 +112,7 @@ async function createSuggestedGroup(suggestion: GroupSuggestion) {
       <h1>Groupify Your Tabs</h1>
     </header>
 
+    <Toast :message="errorMessage" variant="error" />
     <p v-if="loading" class="muted">Loading tabs...</p>
 
     <template v-else>

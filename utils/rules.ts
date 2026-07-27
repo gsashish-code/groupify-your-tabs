@@ -1,5 +1,7 @@
 import { addTabsToNamedGroup, type TabGroupColor } from "@/utils/tabGroups";
 import { getHostname, hostMatchesPattern } from "@/utils/hostMatch";
+import { createKeyedLock } from "@/utils/asyncLock";
+import { registerBackgroundOp } from "@/utils/backgroundRpc";
 
 export type MatchType = "url" | "regex";
 
@@ -42,39 +44,60 @@ async function saveRules(rules: AutoGroupRule[]): Promise<void> {
   await browser.storage.local.set({ [STORAGE_KEY]: rules });
 }
 
-export async function addRule(rule: Omit<AutoGroupRule, "id">): Promise<AutoGroupRule> {
-  const rules = await getRules();
-  const created: AutoGroupRule = { ...rule, id: crypto.randomUUID() };
-  rules.push(created);
-  await saveRules(rules);
-  return created;
-}
+// Rules are read-modify-write against browser.storage.local, which has no compare-and-swap. Two
+// options pages (or a popup and an options page) reading the same old value and each writing back
+// would otherwise let one silently clobber the other's change. Routing every mutation through the
+// single background instance (registerBackgroundOp) and serializing them there (withLock) removes
+// the race instead of narrowing it.
+const withLock = createKeyedLock();
 
-export async function deleteRule(id: string): Promise<void> {
-  const rules = await getRules();
-  await saveRules(rules.filter((rule) => rule.id !== id));
+async function addRuleImpl(rule: Omit<AutoGroupRule, "id">): Promise<AutoGroupRule> {
+  return withLock(STORAGE_KEY, async () => {
+    const rules = await getRules();
+    const created: AutoGroupRule = { ...rule, id: crypto.randomUUID() };
+    await saveRules([...rules, created]);
+    return created;
+  });
 }
+export const addRule = registerBackgroundOp("rules/add", addRuleImpl);
 
-export async function updateRule(
-  id: string,
-  updates: Partial<Omit<AutoGroupRule, "id">>,
-): Promise<void> {
-  const rules = await getRules();
-  await saveRules(rules.map((rule) => (rule.id === id ? { ...rule, ...updates } : rule)));
+async function deleteRuleImpl(id: string): Promise<void> {
+  await withLock(STORAGE_KEY, async () => {
+    const rules = await getRules();
+    await saveRules(rules.filter((rule) => rule.id !== id));
+  });
 }
+export const deleteRule = registerBackgroundOp("rules/delete", deleteRuleImpl);
+
+async function updateRuleImpl(id: string, updates: Partial<Omit<AutoGroupRule, "id">>): Promise<void> {
+  await withLock(STORAGE_KEY, async () => {
+    const rules = await getRules();
+    await saveRules(rules.map((rule) => (rule.id === id ? { ...rule, ...updates } : rule)));
+  });
+}
+export const updateRule = registerBackgroundOp("rules/update", updateRuleImpl);
 
 /**
  * Removes every rule quick-added from this predefined category, not just one — guards against
  * duplicates (e.g. from repeated Add clicks before a fix landed) leaving "Added" stuck on.
  */
-export async function deleteRulesByPredefinedId(predefinedId: string): Promise<void> {
-  const rules = await getRules();
-  await saveRules(rules.filter((rule) => rule.predefinedId !== predefinedId));
+async function deleteRulesByPredefinedIdImpl(predefinedId: string): Promise<void> {
+  await withLock(STORAGE_KEY, async () => {
+    const rules = await getRules();
+    await saveRules(rules.filter((rule) => rule.predefinedId !== predefinedId));
+  });
 }
+export const deleteRulesByPredefinedId = registerBackgroundOp(
+  "rules/deleteByPredefinedId",
+  deleteRulesByPredefinedIdImpl,
+);
 
-export async function clearAllRules(): Promise<void> {
-  await saveRules([]);
+async function clearAllRulesImpl(): Promise<void> {
+  await withLock(STORAGE_KEY, async () => {
+    await saveRules([]);
+  });
 }
+export const clearAllRules = registerBackgroundOp("rules/clear", clearAllRulesImpl);
 
 export function ruleMatchesUrl(rule: AutoGroupRule, url: string): boolean {
   const host = rule.matchType === "url" ? getHostname(url) : "";

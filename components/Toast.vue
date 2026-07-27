@@ -1,14 +1,16 @@
 <script lang="ts" setup>
 import Icon from "@/components/Icon.vue";
 
-defineProps<{ message: string | null }>();
+withDefaults(defineProps<{ message: string | null; variant?: "success" | "error" }>(), {
+  variant: "success",
+});
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="toast">
-      <div v-if="message" class="toast" role="status">
-        <span class="toast-icon"><Icon name="check" :size="12" /></span>
+      <div v-if="message" class="toast" :class="`toast-${variant}`" role="status">
+        <span class="toast-icon"><Icon :name="variant === 'error' ? 'alert' : 'check'" :size="12" /></span>
         <span class="toast-text">{{ message }}</span>
       </div>
     </Transition>
@@ -46,6 +48,15 @@ defineProps<{ message: string | null }>();
   background: rgba(34, 197, 94, 0.18);
   color: #22c55e;
   flex-shrink: 0;
+}
+
+.toast-error {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.toast-error .toast-icon {
+  background: rgba(239, 68, 68, 0.18);
+  color: #ef4444;
 }
 
 .toast-text {
