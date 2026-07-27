@@ -8,7 +8,8 @@ export default defineConfig({
     description: 'Group your open browser tabs automatically.',
     permissions: [
       "tabs",
-      "tabGroups"
+      "tabGroups",
+      "storage"
     ]
   },
 });
