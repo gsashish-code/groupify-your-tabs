@@ -201,8 +201,15 @@ async function resetAllRules() {
 
   busyKey.value = "reset-all";
   try {
+    const groupTitles = new Set(rules.value.map((rule) => rule.groupTitle));
+
     await clearAllRules();
     await loadRules();
+
+    const groups = await getAllTabGroups();
+    const matching = groups.filter((group) => group.title && groupTitles.has(group.title));
+    await Promise.all(matching.map((group) => removeGroup(group.id)));
+
     statusMessage.value = "All rules removed.";
   } finally {
     busyKey.value = null;
