@@ -15,11 +15,18 @@ export interface AutoGroupRule {
    * wrote by hand. Tracked separately from `groupTitle` since the title can be renamed/reused.
    */
   predefinedId?: string;
+  /** Whether this rule actively groups tabs. Absent means enabled — keeps old stored rules working. */
+  enabled?: boolean;
 }
 
 /** True if `rule` came from a predefined category (via Quick Add) rather than the manual form. */
 export function isPredefinedRule(rule: AutoGroupRule): boolean {
   return rule.predefinedId !== undefined;
+}
+
+/** `enabled` defaults to true when absent, so rules created before this field existed still run. */
+export function isRuleEnabled(rule: AutoGroupRule): boolean {
+  return rule.enabled !== false;
 }
 
 export const RULES_STORAGE_KEY = "autoGroupRules";
@@ -83,7 +90,7 @@ export function ruleMatchesUrl(rule: AutoGroupRule, url: string): boolean {
 }
 
 export function findMatchingRule(rules: AutoGroupRule[], url: string): AutoGroupRule | undefined {
-  return rules.find((rule) => ruleMatchesUrl(rule, url));
+  return rules.find((rule) => isRuleEnabled(rule) && ruleMatchesUrl(rule, url));
 }
 
 /**

@@ -5,6 +5,7 @@ import { suggestGroups, createGroup, type GroupSuggestion } from "@/utils/tabGro
 import { debounce } from "@/utils/debounce";
 import { getRules, RULES_STORAGE_KEY, type AutoGroupRule } from "@/utils/rules";
 import YourTabs from "@/components/YourTabs.vue";
+import Icon from "@/components/Icon.vue";
 
 const suggestions = ref<GroupSuggestion[]>([]);
 const rules = ref<AutoGroupRule[]>([]);
@@ -91,24 +92,31 @@ async function createSuggestedGroup(suggestion: GroupSuggestion) {
 
 <template>
   <div class="popup">
-    <h1>Groupify Your Tabs</h1>
+    <header class="popup-header">
+      <span class="brand-icon"><Icon name="bolt" :size="16" /></span>
+      <h1>Groupify Your Tabs</h1>
+    </header>
 
-    <p v-if="loading">Loading tabs...</p>
+    <p v-if="loading" class="muted">Loading tabs...</p>
 
     <template v-else>
       <section class="section">
-        <button class="link-button" @click="openCustomTabRules">Customize your own tab rule →</button>
+        <button class="link-button" @click="openCustomTabRules">
+          Customize your own tab rule
+          <Icon name="chevron-down" :size="13" style="transform: rotate(-90deg)" />
+        </button>
       </section>
 
       <section v-if="suggestions.length" class="section">
-        <h2>Suggested Tabs</h2>
+        <h2><Icon name="plus" :size="12" /> Suggested Tabs</h2>
         <div v-for="suggestion in suggestions" :key="suggestion.name" class="row">
           <div class="row-info">
-            <span class="group-dot" :class="`color-${suggestion.color}`"></span>
+            <span class="group-icon" :class="`color-${suggestion.color}`"><Icon name="folder" :size="12" /></span>
             <span class="row-title">{{ suggestion.name }}</span>
             <span class="muted">({{ suggestion.tabs.length }})</span>
           </div>
           <button
+            class="btn btn-accent"
             :disabled="busyKey === `suggestion-${suggestion.name}`"
             @click="createSuggestedGroup(suggestion)"
           >
@@ -118,7 +126,7 @@ async function createSuggestedGroup(suggestion: GroupSuggestion) {
       </section>
 
       <section class="section">
-        <h2>Your Tabs</h2>
+        <h2><Icon name="folder" :size="12" /> Your Tabs</h2>
         <YourTabs :rules="rules" />
       </section>
     </template>
@@ -127,11 +135,47 @@ async function createSuggestedGroup(suggestion: GroupSuggestion) {
 
 <style scoped>
 .popup {
-  min-width: 300px;
+  --bg-1: #0b1330;
+  --card-bg: rgba(255, 255, 255, 0.05);
+  --card-border: rgba(255, 255, 255, 0.09);
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: #8b93b8;
+  --accent: #6366f1;
+  --accent-hover: #7678f5;
+  --green: #22c55e;
+  --red: #ef4444;
+  --purple: #a855f7;
+
+  min-width: 320px;
   max-height: 480px;
   padding: 1rem;
-  text-align: center;
   overflow-y: auto;
+  background: radial-gradient(circle at top left, #1c2b63, var(--bg-1) 65%);
+  color: var(--text);
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  color: white;
+  flex-shrink: 0;
+}
+
+h1 {
+  font-size: 1rem;
+  margin: 0;
 }
 
 .section {
@@ -140,14 +184,18 @@ async function createSuggestedGroup(suggestion: GroupSuggestion) {
 }
 
 .section h2 {
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
-  color: #666;
-  margin: 0 0 0.4rem;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin: 0 0 0.5rem;
 }
 
 .muted {
-  color: #888;
+  color: var(--muted);
   font-size: 0.85rem;
 }
 
@@ -156,13 +204,17 @@ async function createSuggestedGroup(suggestion: GroupSuggestion) {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.3rem 0;
+  padding: 0.45rem 0.7rem;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  margin-bottom: 0.4rem;
 }
 
 .row-info {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   overflow: hidden;
 }
 
@@ -172,25 +224,42 @@ async function createSuggestedGroup(suggestion: GroupSuggestion) {
   white-space: nowrap;
 }
 
-button {
-  font-size: 0.8rem;
-  padding: 0.2rem 0.6rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #f5f5f5;
+.btn {
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.3rem 0.7rem;
+  border-radius: 7px;
+  border: 1px solid var(--card-border);
   cursor: pointer;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
 }
 
-button:disabled {
+.btn:disabled {
   cursor: default;
   opacity: 0.6;
 }
 
-.group-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+.btn-accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.group-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
   flex-shrink: 0;
+  color: white;
   background: grey;
 }
 
@@ -206,15 +275,22 @@ button:disabled {
 
 .link-button {
   width: 100%;
-  text-align: center;
-  background: none;
-  border: none;
-  color: #646cff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 8px;
+  color: #a5b4fc;
   font-weight: 500;
-  padding: 0.4rem 0;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .link-button:hover {
-  text-decoration: underline;
+  background: rgba(99, 102, 241, 0.2);
 }
 </style>
