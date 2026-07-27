@@ -176,6 +176,21 @@ async function removeRule(id: string) {
   }
 }
 
+async function syncAllRules() {
+  busyKey.value = "sync-all";
+  try {
+    let totalMoved = 0;
+    for (const rule of rules.value.filter(isRuleEnabled)) {
+      totalMoved += await applyRuleToOpenTabs(rule);
+    }
+    if (totalMoved > 0) {
+      statusMessage.value = `Synced all rules: grouped ${totalMoved} open tab${totalMoved === 1 ? "" : "s"}.`;
+    }
+  } finally {
+    busyKey.value = null;
+  }
+}
+
 async function resetAllRules() {
   if (
     !confirm(
@@ -317,10 +332,16 @@ async function saveEditRule(rule: AutoGroupRule) {
           <p class="subtitle">Define automatic tab grouping rules</p>
         </div>
       </div>
-      <button class="btn btn-ghost" :disabled="busyKey === 'reset-all'" @click="resetAllRules">
-        <Icon name="trash" :size="14" />
-        {{ busyKey === "reset-all" ? "Resetting..." : "Reset Rules" }}
-      </button>
+      <div class="topbar-actions">
+        <button class="btn btn-accent" :disabled="busyKey === 'sync-all'" @click="syncAllRules">
+          <Icon name="refresh" :size="14" />
+          {{ busyKey === "sync-all" ? "Syncing..." : "Sync All" }}
+        </button>
+        <button class="btn btn-ghost" :disabled="busyKey === 'reset-all'" @click="resetAllRules">
+          <Icon name="trash" :size="14" />
+          {{ busyKey === "reset-all" ? "Resetting..." : "Reset Rules" }}
+        </button>
+      </div>
     </header>
 
     <Toast :message="statusMessage" />
@@ -552,6 +573,11 @@ async function saveEditRule(rule: AutoGroupRule) {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .brand-icon {
